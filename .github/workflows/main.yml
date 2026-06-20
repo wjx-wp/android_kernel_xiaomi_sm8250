@@ -57,8 +57,8 @@ jobs:
         unzip -q ./*.zip -d extracted_ak3
         
         # 下载 AIK 镜像打包工具
-        git clone --depth=1 https://github.com/mizand/AIK-Linux-xz.git aik
-        
+        git clone --depth=1 https://github.com/SebaUbuntu/AIK-Linux-mirror.git aik
+
         # 【核心优化：全自动兼容压缩格式的底包】
         if [ -f "base/stock_boot.img.zip" ]; then
           echo "🎁 检测到 ZIP 压缩格式底包，正在云端全自动解压..."
