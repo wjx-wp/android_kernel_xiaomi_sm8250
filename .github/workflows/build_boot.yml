@@ -49,87 +49,76 @@ jobs:
         echo "Building alioth with KernelSU for MIUI..."
         bash build-miui.sh alioth ksu
 
-    - name: Pack Finished boot.img via AIK
+    - name: Pack Finished boot.img via Magiskboot
       run: |
         echo "====================================="
-        echo "1. 准备工作环境与工具"
+        echo "1. 准备工作环境"
         echo "====================================="
+        mkdir -p workspace
         mkdir -p extracted_ak3
-        git clone --depth=1 https://github.com/SebaUbuntu/AIK-Linux-mirror.git aik
         
         echo "====================================="
-        echo "2. 处理原厂底包 (Base Boot)"
+        echo "2. 提取官方 Magiskboot 工具 (完美支持 V3 Header)"
         echo "====================================="
-        # 智能解压底包
+        # 黑科技：直接从官方 APK 里抽出 Linux 原生版神级打包工具
+        wget -qO magisk.apk https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk
+        unzip -q -j magisk.apk "lib/x86_64/libmagiskboot.so" -d workspace/
+        mv workspace/libmagiskboot.so workspace/magiskboot
+        chmod +x workspace/magiskboot
+        echo "✅ Magiskboot x86_64 工具就绪！"
+        
+        echo "====================================="
+        echo "3. 处理原厂底包"
+        echo "====================================="
         if [ -f "base/stock_boot.img.zip" ]; then
-          echo "🎁 检测到 ZIP 格式底包，正在解压..."
           unzip -q base/stock_boot.img.zip -d base/
         elif [ -f "base/stock_boot.img.gz" ]; then
-          echo "🎁 检测到 GZ 格式底包，正在解压..."
           gunzip -c base/stock_boot.img.gz > base/stock_boot.img
         fi
         
-        # 递归智能寻找解压出来的 boot.img 或 stock_boot.img
         BASE_BOOT=$(find base -type f \( -name "boot.img" -o -name "stock_boot.img" \) | head -n 1)
-        
         if [ -z "$BASE_BOOT" ]; then
-          echo "⚠️ 致命错误：在 base 目录中未找到任何 boot.img！当前结构如下："
-          ls -R base/
+          echo "⚠️ 未找到底包！请检查 base 文件夹。"
           exit 1
         fi
-        
-        echo "✅ 成功找到原厂底包：$BASE_BOOT"
-        cp "$BASE_BOOT" aik/boot.img
+        cp "$BASE_BOOT" workspace/boot.img
         
         echo "====================================="
-        echo "3. 解包原厂底包"
+        echo "4. 提取新编译的 KernelSU 内核"
         echo "====================================="
-        cd aik
-        chmod +x unpackimg.sh repackimg.sh
-        ./unpackimg.sh
-        
-        echo "====================================="
-        echo "4. 提取新编译的内核"
-        echo "====================================="
-        unzip -q ../*.zip -d ../extracted_ak3
-        
-        # 智能寻找新内核 (排除 dtb, sh, md 等干扰文件)
-        NEW_KERNEL=$(find ../extracted_ak3 -type f \( -name "Image*" -o -name "zImage*" -o -name "kernel" \) | grep -v -E "\.dtb|\.sh|\.md|\.txt" | head -n 1)
-        
+        unzip -q ./*.zip -d extracted_ak3
+        NEW_KERNEL=$(find extracted_ak3 -type f \( -name "Image*" -o -name "zImage*" -o -name "kernel" \) | grep -v -E "\.dtb|\.sh|\.md|\.txt" | head -n 1)
         if [ -z "$NEW_KERNEL" ]; then
-          echo "⚠️ 致命错误：找不到有效的内核文件！ZIP 内部结构如下："
-          ls -R ../extracted_ak3
+          echo "⚠️ ZIP 包内找不到新内核文件！"
           exit 1
         fi
         echo "🎉 成功提取新内核文件：$NEW_KERNEL"
         
         echo "====================================="
-        echo "5. 执行内核替换 (缝合手术)"
+        echo "5. 执行内核替换 (Magiskboot 官方级缝合)"
         echo "====================================="
-        # 智能寻找 AIK 拆包产生的老内核文件
-        OLD_KERNEL=$(find split_img -type f \( -name "*-zImage" -o -name "*-kernel" -o -name "*-Image*" \) | grep -v -E "ramdisk|dtb" | head -n 1)
+        cd workspace
+        ./magiskboot unpack boot.img
         
-        if [ -z "$OLD_KERNEL" ]; then
-          echo "⚠️ 致命错误：AIK 未能成功分离出原厂内核文件！"
+        if [ ! -f "kernel" ]; then
+          echo "⚠️ Magiskboot 解包失败，未分离出 kernel 文件！"
           exit 1
         fi
         
-        echo "🎯 找到原厂内核位置：$OLD_KERNEL"
-        echo "💉 正在注入新内核..."
-        cp -f "$NEW_KERNEL" "$OLD_KERNEL"
+        echo "💉 注入全新内核..."
+        cp -f "../$NEW_KERNEL" kernel
         
-        export TERM=xterm
         echo "====================================="
         echo "6. 重新打包生成成品镜像"
         echo "====================================="
-        ./repackimg.sh || true
+        ./magiskboot repack boot.img ksu_boot_alioth_miui14.img
         
-        if [ ! -f "image-new.img" ]; then
-          echo "⚠️ 致命错误：AIK 打包失败，未生成 image-new.img！"
+        if [ ! -f "ksu_boot_alioth_miui14.img" ]; then
+          echo "⚠️ 致命错误：Magiskboot 打包失败！"
           exit 1
         fi
         
-        mv image-new.img ../ksu_boot_alioth_miui14.img
+        mv ksu_boot_alioth_miui14.img ../
         echo "✅ 成品打包成功！"
 
     - name: Upload Finished Boot Image
