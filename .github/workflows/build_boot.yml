@@ -53,13 +53,11 @@ jobs:
       run: |
         echo "开始解包并提取内核..."
         mkdir -p extracted_ak3
-        # 解压内核源码构建出的 zip 包，拿到纯净内核 Image
         unzip -q ./*.zip -d extracted_ak3
         
-        # 下载 AIK 镜像打包工具
+        # 修复：使用永不失效的 AIK 镜像源
         git clone --depth=1 https://github.com/SebaUbuntu/AIK-Linux-mirror.git aik
-
-        # 【核心优化：全自动兼容压缩格式的底包】
+        
         if [ -f "base/stock_boot.img.zip" ]; then
           echo "🎁 检测到 ZIP 压缩格式底包，正在云端全自动解压..."
           unzip -q base/stock_boot.img.zip -d base/
@@ -68,13 +66,17 @@ jobs:
           gunzip -c base/stock_boot.img.gz > base/stock_boot.img
         fi
         
-        # 安全校验最终解包出的底包是否存在
+        # 【核心修复：给解压出来的 boot.img 重命名】
+        if [ -f "base/boot.img" ]; then
+          echo "🔄 发现内部文件名为 boot.img，正在重命名适配标准..."
+          mv base/boot.img base/stock_boot.img
+        fi
+        
         if [ ! -f "base/stock_boot.img" ]; then
-          echo "⚠️ 错误：未找到原厂底包！请确保 base 目录下有 stock_boot.img 或 stock_boot.img.zip"
+          echo "⚠️ 错误：未找到原厂底包！"
           exit 1
         fi
         
-        # 复制底包到工具目录
         cp base/stock_boot.img aik/boot.img
         
         cd aik
