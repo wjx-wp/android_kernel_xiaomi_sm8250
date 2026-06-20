@@ -118,10 +118,11 @@ jobs:
         echo "💉 正在注入新内核..."
         cp -f "$NEW_KERNEL" "$OLD_KERNEL"
         
+        export TERM=xterm
         echo "====================================="
         echo "6. 重新打包生成成品镜像"
         echo "====================================="
-        ./repackimg.sh
+        ./repackimg.sh || true
         
         if [ ! -f "image-new.img" ]; then
           echo "⚠️ 致命错误：AIK 打包失败，未生成 image-new.img！"
