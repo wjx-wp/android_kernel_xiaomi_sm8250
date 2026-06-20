@@ -1,0 +1,96 @@
+name: Build KSU Boot for K40 (alioth)
+
+on:
+  workflow_dispatch: # 手动触发按钮
+
+jobs:
+  build_and_pack:
+    name: Build & Pack Boot.img (MIUI + KSU)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+
+    - name: Cleanup Disk Space
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+        sudo rm -rf "/usr/local/share/boost"
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git curl wget bison flex zip bc cpio libssl-dev ccache python-is-python3 unzip
+
+    - name: Setup Cache (ccache)
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ccache_mikernel
+        key: kernel-ccache-alioth-build-miui-${{ github.run_id }}
+        restore-keys: |
+          kernel-ccache-alioth-build-miui-
+          kernel-ccache-alioth-
+          kernel-ccache-
+
+    - name: Setup Toolchain (ZyC-Clang 16)
+      run: |
+        mkdir -p $HOME/zyc-clang
+        cd $HOME/zyc-clang
+        wget -q https://github.com/ZyCromerZ/Clang/releases/download/16.0.6-20260510-release/Clang-16.0.6-20260510.tar.gz
+        tar -zxvf Clang-16.0.6-20260510.tar.gz
+
+    - name: Build Kernel (MIUI + KSU)
+      run: |
+        chmod +x build.sh build-miui.sh
+        echo "Building alioth with KernelSU for MIUI..."
+        bash build-miui.sh alioth ksu
+
+    - name: Pack Finished boot.img via AIK
+      run: |
+        echo "开始解包并提取内核..."
+        mkdir -p extracted_ak3
+        # 解压内核源码构建出的 zip 包，拿到纯净内核 Image
+        unzip -q ./*.zip -d extracted_ak3
+        
+        # 下载 AIK 镜像打包工具
+        git clone --depth=1 https://github.com/mizand/AIK-Linux-xz.git aik
+        
+        # 【核心优化：全自动兼容压缩格式的底包】
+        if [ -f "base/stock_boot.img.zip" ]; then
+          echo "🎁 检测到 ZIP 压缩格式底包，正在云端全自动解压..."
+          unzip -q base/stock_boot.img.zip -d base/
+        elif [ -f "base/stock_boot.img.gz" ]; then
+          echo "🎁 检测到 GZ 压缩格式底包，正在云端全自动解压..."
+          gunzip -c base/stock_boot.img.gz > base/stock_boot.img
+        fi
+        
+        # 安全校验最终解包出的底包是否存在
+        if [ ! -f "base/stock_boot.img" ]; then
+          echo "⚠️ 错误：未找到原厂底包！请确保 base 目录下有 stock_boot.img 或 stock_boot.img.zip"
+          exit 1
+        fi
+        
+        # 复制底包到工具目录
+        cp base/stock_boot.img aik/boot.img
+        
+        cd aik
+        chmod +x unpackimg.sh repackimg.sh
+        ./unpackimg.sh
+        
+        echo "正在将新内核注入底包..."
+        cp ../extracted_ak3/Image split_img/boot.img-kernel
+        
+        ./repackimg.sh
+        mv image-new.img ../ksu_boot_alioth_miui14.img
+        echo "成品打包成功！"
+
+    - name: Upload Finished Boot Image
+      uses: actions/upload-artifact@v4
+      with:
+        name: Finished-Boot-Img-Alioth-KSU
+        path: ksu_boot_alioth_miui14.img
+        if-no-files-found: error
